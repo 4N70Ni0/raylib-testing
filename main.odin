@@ -1,6 +1,7 @@
 package game
 
 import "core:fmt"
+import "core:strings"
 import rl "vendor:raylib"
 
 Animation :: struct {
@@ -32,6 +33,7 @@ Player :: struct {
 gravity :: 2000
 // Max number of pixels to display, no matter window size
 PixelWindowHeight :: 180
+DeltaTime :: 0.01
 
 player_init :: proc() -> Player {
     player := Player {
@@ -59,6 +61,17 @@ player_init :: proc() -> Player {
 player_move :: proc(player: ^Player) {
     ground: f32
 
+    @(static) first_time := false
+    @(static) current_time := 0.0
+    @(static) acc := 0.0 // Accumulator
+
+    if !first_time {
+        current_time = rl.GetTime()
+        first_time = true
+    }
+
+    // INPUT
+
     // Scroll
     player.is_moving = true
     if rl.IsKeyDown(.LEFT) || rl.IsKeyDown(.A) {
@@ -73,23 +86,33 @@ player_move :: proc(player: ^Player) {
     }
 
     // Jump
-    player.vel.y += gravity * rl.GetFrameTime()
-    // NOTE: The AND is for disallowing jumping in the air but
-    // it could be remade for making double jump.
     if player.on_ground && rl.IsKeyPressed(.SPACE)  {
         player.vel.y = -player.jump_speed
         player.on_ground = false
     }
 
-    // Vector arithmetic
-    player.pos += player.vel * rl.GetFrameTime()
-
-    player.feet_colider = rl.Rectangle {
-        x = player.pos.x - 4,
-        y = player.pos.y - 4,
-        width = 8,
-        height = 4,
+    // Physics
+    new_time := rl.GetTime()
+    frame_time := new_time - current_time
+    if (frame_time > 0.25) {
+        frame_time = 0.25
     }
+    current_time = new_time
+
+    for acc += frame_time; acc >= DeltaTime; acc -= DeltaTime {
+        // Vector arithmetic
+        // Semi-implicit Eurler
+        player.vel.y += gravity * DeltaTime
+        player.pos += player.vel * DeltaTime
+    
+        player.feet_colider = rl.Rectangle {
+            x = player.pos.x - 4,
+            y = player.pos.y - 4,
+            width = 8,
+            height = 4,
+        }
+    }
+
 }
 
 get_animation :: proc(player: Player, anim: ^Animation) -> (texture: rl.Texture2D, source: rl.Rectangle, dest: rl.Rectangle) {
@@ -198,6 +221,7 @@ main :: proc() {
             }
             if rl.IsKeyPressed(.R) { // Reset position
                 player.pos = {0,0}
+                player.vel = {0,0}
             }
         }
         
@@ -210,6 +234,19 @@ main :: proc() {
 
         if debug_mode {
             rl.DrawRectangleRec(player.feet_colider, rl.ORANGE)
+
+            base_x := i32(player.pos.x - 155)
+            base_y := i32(player.pos.y - 80)
+            lines := []string {
+                fmt.tprintf("x: %2.f, y: %2.f", player.pos.x, player.pos.y),
+                fmt.tprintf("xvel: %2.f, yvel: %2.f", player.vel.x, player.vel.y),
+                fmt.tprintf("dt: %g", rl.GetFrameTime()),
+            }
+
+            for msg in lines {
+                rl.DrawText(strings.clone_to_cstring(msg), base_x, base_y, 1, rl.BLACK)
+                base_y += 10
+            }
         }
 
         rl.EndMode2D()
