@@ -1,8 +1,15 @@
+#+feature dynamic-literals
+
 package game
 
 import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
+
+Level :: struct {
+    // Maybe all platforms should have the same size
+    platforms: [dynamic] rl.Vector2,
+}
 
 Animation :: struct {
     texture: rl.Texture2D,
@@ -31,9 +38,14 @@ Player :: struct {
 }
 
 gravity :: 2000
-// Max number of pixels to display, no matter window size
-PixelWindowHeight :: 180
+PixelWindowHeight :: 180 // Max number of pixels to display, no matter window size
 DeltaTime :: 0.01
+
+platform_collider :: proc(pos: rl.Vector2) -> rl.Rectangle {
+    return {
+        pos.x, pos.y, 96, 16,
+    }
+}
 
 player_init :: proc() -> Player {
     player := Player {
@@ -61,14 +73,14 @@ player_init :: proc() -> Player {
 player_move :: proc(player: ^Player) {
     ground: f32
 
-    @(static) first_time := false
-    @(static) current_time := 0.0
-    @(static) acc := 0.0 // Accumulator
+    // @(static) first_time := false
+    // @(static) current_time := 0.0
+    // @(static) acc := 0.0 // Accumulator
 
-    if !first_time {
-        current_time = rl.GetTime()
-        first_time = true
-    }
+    // if !first_time {
+    //     current_time = rl.GetTime()
+    //     first_time = true
+    // }
 
     // INPUT
 
@@ -86,33 +98,54 @@ player_move :: proc(player: ^Player) {
     }
 
     // Jump
+    // TODO: Fix cause sometimes it won't jump.
     if player.on_ground && rl.IsKeyPressed(.SPACE)  {
         player.vel.y = -player.jump_speed
         player.on_ground = false
     }
 
     // Physics
-    new_time := rl.GetTime()
-    frame_time := new_time - current_time
-    if (frame_time > 0.25) {
-        frame_time = 0.25
-    }
-    current_time = new_time
+    // new_time := rl.GetTime()
+    // frame_time := new_time - current_time
+    // if (frame_time > 0.25) {
+    //     frame_time = 0.25
+    // }
+    // fmt.println(frame_time, "---", rl.GetFrameTime())
+    // current_time = new_time
 
-    for acc += frame_time; acc >= DeltaTime; acc -= DeltaTime {
-        // Vector arithmetic
-        // Semi-implicit Eurler
-        player.vel.y += gravity * DeltaTime
-        player.pos += player.vel * DeltaTime
-    
-        player.feet_colider = rl.Rectangle {
-            x = player.pos.x - 4,
-            y = player.pos.y - 4,
-            width = 8,
-            height = 4,
-        }
-    }
+    // for acc += frame_time; acc >= DeltaTime; acc -= DeltaTime {
+    // Vector arithmetic
+    // Semi-implicit Eurler
 
+    // TODO: Fix freezing screen
+    frame_time := rl.GetFrameTime()
+    player.vel.y += gravity * frame_time
+    player.pos += player.vel * frame_time
+
+    player.feet_colider = rl.Rectangle {
+        x = player.pos.x - 4,
+        y = player.pos.y - 4,
+        width = 8,
+        height = 4,
+    }
+    // }
+
+}
+
+camera_move :: proc(camera: ^rl.Camera2D) {
+    ground: f32
+    steps :f32 = 3
+
+    // Scroll
+    if rl.IsKeyDown(.W) {
+        camera.target.y -= steps
+    } else if rl.IsKeyDown(.A) {
+        camera.target.x -= steps
+    } else if rl.IsKeyDown(.S) {
+        camera.target.y += steps
+    } else if rl.IsKeyDown(.D) {
+        camera.target.x += steps
+    }
 }
 
 get_animation :: proc(player: Player, anim: ^Animation) -> (texture: rl.Texture2D, source: rl.Rectangle, dest: rl.Rectangle) {
@@ -172,71 +205,107 @@ player_draw :: proc(player: ^Player) {
 
 main :: proc() {
     camera: rl.Camera2D
-    debug_mode, create_mode: bool
+    
+    debug_mode := false
+    editor_mode := false
+    snap_grid: i32 = 20
 
     rl.InitWindow(1280, 720, "Main window")
     rl.SetWindowState({.WINDOW_RESIZABLE})
     rl.SetTargetFPS(150)
     
     player := player_init()
-    // TODO: Add nicer platforms :P (textures)
-    platforms := []rl.Rectangle {
-        {-20, 20, 96, 16},
-        {100, -20, 96, 16},
+    level := Level {
+        // TODO: Add nicer platforms :P (textures)
+        platforms = {
+            {-20, 20},
+            {100, -20},
+        }
     }
     plat_texture := rl.LoadTexture("platform.png")
 
     for !rl.WindowShouldClose() {
 
+        if rl.IsKeyPressed(.F2) {
+            editor_mode = !editor_mode
+        }
+        if rl.IsKeyPressed(.F3) {
+            debug_mode = !debug_mode
+        }
+
         // Base drawing
         rl.BeginDrawing()
         rl.ClearBackground(rl.LIGHTGRAY)
 
-        // Update
-        player_move(&player)
-        camera = rl.Camera2D {
-            zoom = f32(rl.GetScreenHeight()) / PixelWindowHeight,
-            offset = {f32(rl.GetScreenWidth() / 2), f32(rl.GetScreenHeight() / 2)},
-            target = player.pos,
-        }
-
-        // Check platform collision if the player is falling
-        player.on_ground = false
-        for platform in platforms {
-            if player.vel.y > 0 && rl.CheckCollisionRecs(player.feet_colider, platform) {
-                player.vel.y = 0
-                player.pos.y = platform.y
-                player.on_ground = true
+        if editor_mode {
+            camera_move(&camera)
+        } else {
+            // Update
+            player_move(&player)
+            camera = rl.Camera2D {
+                zoom = f32(rl.GetScreenHeight()) / PixelWindowHeight,
+                offset = {f32(rl.GetScreenWidth() / 2), f32(rl.GetScreenHeight() / 2)},
+                target = player.pos,
             }
-        }
+
+            // Check platform collision if the player is falling
+            player.on_ground = false
+            for platform in level.platforms {
+                if player.vel.y > 0 && rl.CheckCollisionRecs(player.feet_colider, platform_collider(platform)) {
+                    player.vel.y = 0
+                    player.pos.y = platform.y
+                    player.on_ground = true
+                }
+            }
 
 
-        // Activate / Deactivate modes
-        if rl.IsKeyDown(.LEFT_CONTROL) {
-            if rl.IsKeyPressed(.X) {
-                debug_mode = !debug_mode
-            }
-            if rl.IsKeyPressed(.C) {
-                create_mode = !create_mode
-            }
-            if rl.IsKeyPressed(.R) { // Reset position
-                player.pos = {0,0}
-                player.vel = {0,0}
+            // Activate / Deactivate modes
+            if rl.IsKeyDown(.LEFT_CONTROL) {
+                if rl.IsKeyPressed(.R) { // Reset position
+                    player.pos = {0,0}
+                    player.vel = {0,0}
+                }
             }
         }
         
         // Draw
         rl.BeginMode2D(camera)
         player_draw(&player)
-        for platform in platforms {
-            rl.DrawTextureV(plat_texture, {platform.x, platform.y}, rl.WHITE)
+        for platform in level.platforms {
+            rl.DrawTextureV(plat_texture, platform, rl.WHITE)
+        }
+
+        if editor_mode {
+            // Snap grid
+            // NOTE: I'm sleepy and IDK how I made this work. It may be
+            // simple math but I'm still not sure how I did it lol.
+            size :i32 = 1000
+            nlines := size / snap_grid
+            range := (nlines / 2) * snap_grid
+            for line :i32 = -range; line <= range; line += snap_grid {
+                rl.DrawRectangle(line, -size/2, 1, size, rl.GRAY) // Vertical
+                rl.DrawRectangle(-size/2, line, size, 1, rl.GRAY) // Horizontal
+            }
+
+            mspos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
+
+            // Snap grid
+            px := f32((i32(mspos.x) / snap_grid) * snap_grid)
+            py := f32((i32(mspos.y) / snap_grid) * snap_grid)
+            rl.DrawTextureV(plat_texture, {px, py}, rl.WHITE)
+
+            cx := i32(camera.target.x)
+            cy := i32(camera.target.y)
+
+            rl.DrawRectangle(cx, cy - 5, 1, 10, rl.YELLOW) // Vertical
+            rl.DrawRectangle(cx - 5, cy, 10, 1, rl.YELLOW) // Horizontal
         }
 
         if debug_mode {
             rl.DrawRectangleRec(player.feet_colider, rl.ORANGE)
 
-            base_x := i32(player.pos.x - 155)
-            base_y := i32(player.pos.y - 80)
+            base_x := i32(camera.target.x - 155)
+            base_y := i32(camera.target.y - 80)
             lines := []string {
                 fmt.tprintf("x: %2.f, y: %2.f", player.pos.x, player.pos.y),
                 fmt.tprintf("xvel: %2.f, yvel: %2.f", player.vel.x, player.vel.y),
