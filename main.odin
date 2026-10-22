@@ -146,6 +146,23 @@ camera_move :: proc(camera: ^rl.Camera2D) {
     } else if rl.IsKeyDown(.D) {
         camera.target.x += steps
     }
+
+    // Zoom
+    if rl.IsKeyDown(.LEFT_CONTROL) {
+        if rl.IsKeyPressed(.MINUS) {
+            camera.zoom -= 0.5
+            if camera.zoom <= 1 {
+                camera.zoom = 1
+            }
+        }
+        if rl.IsKeyPressed(.EQUAL) {
+            camera.zoom += 0.5
+            if camera.zoom >= 10 {
+                camera.zoom = 10
+            }
+        }
+    }
+    fmt.println("Zoom: ", camera.zoom)
 }
 
 get_animation :: proc(player: Player, anim: ^Animation) -> (texture: rl.Texture2D, source: rl.Rectangle, dest: rl.Rectangle) {
@@ -289,14 +306,14 @@ main :: proc() {
 
             mspos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
 
-            // Snap grid
+            // Snap platform to the grid
             px := f32((i32(mspos.x) / snap_grid) * snap_grid)
             py := f32((i32(mspos.y) / snap_grid) * snap_grid)
             rl.DrawTextureV(plat_texture, {px, py}, rl.WHITE)
 
+            // Editor crosshair
             cx := i32(camera.target.x)
             cy := i32(camera.target.y)
-
             rl.DrawRectangle(cx, cy - 5, 1, 10, rl.YELLOW) // Vertical
             rl.DrawRectangle(cx - 5, cy, 10, 1, rl.YELLOW) // Horizontal
         }
