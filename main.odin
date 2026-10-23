@@ -4,6 +4,10 @@ package game
 
 import "core:fmt"
 import "core:strings"
+import "core:encoding/json"
+import "core:os"
+import "core:math"
+import "core:mem"
 import rl "vendor:raylib"
 
 Level :: struct {
@@ -162,7 +166,6 @@ camera_move :: proc(camera: ^rl.Camera2D) {
             }
         }
     }
-    fmt.println("Zoom: ", camera.zoom)
 }
 
 get_animation :: proc(player: Player, anim: ^Animation) -> (texture: rl.Texture2D, source: rl.Rectangle, dest: rl.Rectangle) {
@@ -220,7 +223,36 @@ player_draw :: proc(player: ^Player) {
     rl.DrawTexturePro(texture, source, dest, {dest.width / 2, dest.height}, 0, rl.WHITE)
 }
 
+adjust_mspos :: proc(mspos: f32, grid_space: f32) -> f32 {
+    pos: f32 = math.trunc(mspos / grid_space) * grid_space
+
+    if mspos < 0 {
+        pos -= grid_space
+    }
+
+    return pos
+}
+
+// Notes: Regarding memory leaks, the following is a tracker of those leaks.
+// It's not important to free it at the end of the program because the OS is going
+// to take that used memory anyways but it's important to take it into account
+// while the program is running to avoid taking a lot of space of memory.
+// Things to free: dynamic arrays, temp_allocatory, rl.UnloadTexture()
 main :: proc() {
+    track: mem.Tracking_Allocator
+    mem.tracking_allocator_init(&track, context.allocator)
+    context.allocator = mem.tracking_allocator(&track)
+
+    defer {
+        for _, entry in track.allocation_map {
+            fmt.eprintfln("%v leaked %v bytes", entry.location, entry.size)
+        }
+        for entry in track.bad_free_array {
+            fmt.eprintfln("%v bad free", entry.location)
+        }
+        mem.tracking_allocator_destroy(&track)
+    }
+
     camera: rl.Camera2D
     
     debug_mode := false
@@ -232,14 +264,19 @@ main :: proc() {
     rl.SetTargetFPS(150)
     
     player := player_init()
-    level := Level {
-        // TODO: Add nicer platforms :P (textures)
-        platforms = {
-            {-20, 20},
-            {100, -20},
-        }
-    }
+    level: Level
     plat_texture := rl.LoadTexture("platform.png")
+
+    // Append a platform just in case something goes wrong while loading the level.
+    // Temporary tho, it should not allow load anything if no level can be loaded.
+    if level_data, err := os.read_entire_file("level.json", context.temp_allocator); err == nil {
+        if json.unmarshal(level_data, &level) != nil {
+            append(&level.platforms, rl.Vector2{-20,20})
+        }
+    } else {
+        append(&level.platforms, rl.Vector2{-20,20})
+    }
+    free_all(context.temp_allocator)
 
     for !rl.WindowShouldClose() {
 
@@ -256,6 +293,7 @@ main :: proc() {
 
         if editor_mode {
             camera_move(&camera)
+
         } else {
             // Update
             player_move(&player)
@@ -304,18 +342,47 @@ main :: proc() {
                 rl.DrawRectangle(-size/2, line, size, 1, rl.GRAY) // Horizontal
             }
 
-            mspos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
-
             // Snap platform to the grid
-            px := f32((i32(mspos.x) / snap_grid) * snap_grid)
-            py := f32((i32(mspos.y) / snap_grid) * snap_grid)
+            mspos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
+            px := adjust_mspos(mspos.x, f32(snap_grid))
+            py := adjust_mspos(mspos.y, f32(snap_grid))
             rl.DrawTextureV(plat_texture, {px, py}, rl.WHITE)
+
+            // Place or remove platform
+            vec: rl.Vector2 = {
+                px, py
+            }
+            if rl.IsMouseButtonPressed(.LEFT) {
+                append(&level.platforms, vec)
+            }
+            if rl.IsMouseButtonPressed(.RIGHT) {
+                for plat, idx in level.platforms {
+                    if rl.CheckCollisionPointRec(vec, platform_collider(plat)) {
+                        unordered_remove(&level.platforms, idx)
+                        break
+                    }
+                }
+            }
 
             // Editor crosshair
             cx := i32(camera.target.x)
             cy := i32(camera.target.y)
             rl.DrawRectangle(cx, cy - 5, 1, 10, rl.YELLOW) // Vertical
             rl.DrawRectangle(cx - 5, cy, 10, 1, rl.YELLOW) // Horizontal
+
+
+            if rl.IsKeyPressed(.F5) {
+                if data, err := json.marshal(level, allocator = context.temp_allocator); err == nil {
+                    if ret := os.write_entire_file("level.json", data); err != nil {
+                        fmt.eprintln("Error writtin level to a file")
+                    } else {
+                        fmt.println("Level writen to a file successfuly")
+                    }
+                } else {
+                    fmt.println("Error marshaling level")
+                }
+                free_all(context.temp_allocator)
+            }
         }
 
         if debug_mode {
@@ -323,14 +390,15 @@ main :: proc() {
 
             base_x := i32(camera.target.x - 155)
             base_y := i32(camera.target.y - 80)
-            lines := []string {
-                fmt.tprintf("x: %2.f, y: %2.f", player.pos.x, player.pos.y),
-                fmt.tprintf("xvel: %2.f, yvel: %2.f", player.vel.x, player.vel.y),
-                fmt.tprintf("dt: %g", rl.GetFrameTime()),
+            lines := []cstring {
+                fmt.ctprintf("x: %2.f, y: %2.f", player.pos.x, player.pos.y),
+                fmt.ctprintf("xvel: %2.f, yvel: %2.f", player.vel.x, player.vel.y),
+                fmt.ctprintf("dt: %g", rl.GetFrameTime()),
             }
 
             for msg in lines {
-                rl.DrawText(strings.clone_to_cstring(msg), base_x, base_y, 1, rl.BLACK)
+                // FIX: This is a massive memory leak
+                rl.DrawText(msg, base_x, base_y, 1, rl.BLACK)
                 base_y += 10
             }
         }
@@ -340,4 +408,6 @@ main :: proc() {
     }
 
     rl.CloseWindow()
+
+
 }
