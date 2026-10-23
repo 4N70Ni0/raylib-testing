@@ -10,9 +10,18 @@ import "core:math"
 import "core:mem"
 import rl "vendor:raylib"
 
+Platform :: struct {
+    pos: rl.Vector2,
+    width: f32,
+    height: f32,
+    is_solid: bool, // Useful for platforms
+    color: rl.Color,
+    texture: rl.Texture2D,
+}
+
 Level :: struct {
     // Maybe all platforms should have the same size
-    platforms: [dynamic] rl.Vector2,
+    platforms: [dynamic] Platform,
 }
 
 Animation :: struct {
@@ -45,9 +54,9 @@ gravity :: 2000
 PixelWindowHeight :: 180 // Max number of pixels to display, no matter window size
 DeltaTime :: 0.01
 
-platform_collider :: proc(pos: rl.Vector2) -> rl.Rectangle {
+platform_collider :: proc(plat: Platform) -> rl.Rectangle {
     return {
-        pos.x, pos.y, 96, 16,
+        plat.pos.x, plat.pos.y, plat.width, plat.height,
     }
 }
 
@@ -269,12 +278,19 @@ main :: proc() {
 
     // Append a platform just in case something goes wrong while loading the level.
     // Temporary tho, it should not allow load anything if no level can be loaded.
+    def_plat := Platform {
+        pos = rl.Vector2 {0, 20},
+        width = 20,
+        height = 20,
+        is_solid = true,
+        color = rl.BLACK,
+    }
     if level_data, err := os.read_entire_file("level.json", context.temp_allocator); err == nil {
         if json.unmarshal(level_data, &level) != nil {
-            append(&level.platforms, rl.Vector2{-20,20})
+            append(&level.platforms, def_plat)
         }
     } else {
-        append(&level.platforms, rl.Vector2{-20,20})
+        append(&level.platforms, def_plat)
     }
     free_all(context.temp_allocator)
 
@@ -308,7 +324,7 @@ main :: proc() {
             for platform in level.platforms {
                 if player.vel.y > 0 && rl.CheckCollisionRecs(player.feet_colider, platform_collider(platform)) {
                     player.vel.y = 0
-                    player.pos.y = platform.y
+                    player.pos.y = platform.pos.y
                     player.on_ground = true
                 }
             }
@@ -327,7 +343,8 @@ main :: proc() {
         rl.BeginMode2D(camera)
         player_draw(&player)
         for platform in level.platforms {
-            rl.DrawTextureV(plat_texture, platform, rl.WHITE)
+            //rl.DrawTextureV(plat_texture, platform.pos, platform.color)
+            rl.DrawRectangle(i32(platform.pos.x), i32(platform.pos.y), i32(platform.width), i32(platform.height), platform.color)
         }
 
         if editor_mode {
@@ -352,6 +369,7 @@ main :: proc() {
             vec: rl.Vector2 = {
                 px, py
             }
+            /*
             if rl.IsMouseButtonPressed(.LEFT) {
                 append(&level.platforms, vec)
             }
@@ -363,6 +381,7 @@ main :: proc() {
                     }
                 }
             }
+            */
 
             // Editor crosshair
             cx := i32(camera.target.x)
