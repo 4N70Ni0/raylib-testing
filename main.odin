@@ -34,7 +34,7 @@ EditorMode :: enum {Place, Size, Color, Move}
 Editor :: struct {
     level: ^Level,
     mode:  EditorMode,
-    platform: ^Platform, // Selected
+    platform_idx: int,
     grid_space: f32,
 }
 
@@ -99,7 +99,7 @@ editor_init :: proc(level: ^Level) -> Editor {
         level = level,
         grid_space = 20,
         mode = EditorMode.Place,
-        platform = nil,
+        platform_idx = -1,
     }
 }
 
@@ -372,19 +372,21 @@ main :: proc() {
 
             if rl.IsKeyDown(.LEFT_CONTROL) && rl.IsMouseButtonPressed(.LEFT) {
                 for plat, idx in level.platforms {
-                    if rl.CheckCollisionPointRec(mspos, platform_collider(plat)) {
-                        editor.platform = &level.platforms[idx]
+                    if idx == editor.platform_idx {
+                        editor.platform_idx = -1
+                        break
+                    }
+                    else if rl.CheckCollisionPointRec(mspos, platform_collider(plat)) {
+                        editor.platform_idx = idx
                         break
                     }
                 }
-                fmt.println("Platform selected at ", editor.platform.pos)
             }
 
             // TODO: Add more functionality with the editor modes.
-            if editor.platform != nil {
+            if editor.platform_idx >= 0 {
                 // TODO: Try to edit platform, otherwise store index and access level platforms directly
-                editor.platform^.pos = mspos
-                fmt.printfln("editor.platform.pos = %p", editor.platform^)
+                level.platforms[editor.platform_idx].pos = mspos
             }
 
             // Place or remove platform
@@ -425,7 +427,7 @@ main :: proc() {
             if rl.IsKeyPressed(.M) {
                 editor.mode = EditorMode.Move
             }
-                */
+            */
         } else {
             // Update
             player_move(&player)
@@ -464,7 +466,6 @@ main :: proc() {
         for plat in level.platforms {
             //rl.DrawTextureV(plat_texture, platform.pos, platform.color)
             rl.DrawRectangle(i32(plat.pos.x), i32(plat.pos.y), i32(plat.width), i32(plat.height), plat.color)
-            fmt.printfln("plat = %p", plat)
         }
 
         if editor_mode {
