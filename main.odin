@@ -19,9 +19,23 @@ Platform :: struct {
     texture: rl.Texture2D,
 }
 
+Enemy :: struct {
+
+}
+
 Level :: struct {
     // Maybe all platforms should have the same size
+    spawn: rl.Vector2,
     platforms: [dynamic] Platform,
+    enemies: [dynamic] Enemy,
+}
+
+EditorMode :: enum {Place, Size, Color, Move}
+Editor :: struct {
+    level: ^Level,
+    mode:  EditorMode,
+    platform: ^Platform, // Selected
+    grid_space: f32,
 }
 
 Animation :: struct {
@@ -54,12 +68,70 @@ gravity :: 2000
 PixelWindowHeight :: 180 // Max number of pixels to display, no matter window size
 DeltaTime :: 0.01
 
+// region === Level ===
+level_init :: proc() -> Level {
+    level: Level
+
+    // Append a platform just in case something goes wrong while loading the level.
+    // Temporary tho, it should not allow load anything if no level can be loaded.
+    def_plat := Platform {
+        pos = rl.Vector2 {0, 20},
+        width = 20,
+        height = 20,
+        is_solid = true,
+        color = rl.BLACK,
+    }
+    if level_data, err := os.read_entire_file("level.json", context.temp_allocator); err == nil {
+        if json.unmarshal(level_data, &level) != nil {
+            append(&level.platforms, def_plat)
+        }
+    } else {
+        append(&level.platforms, def_plat)
+    }
+    free_all(context.temp_allocator)
+
+    return level
+}
+
+// region === Editor ===
+editor_init :: proc(level: ^Level) -> Editor {
+    return {
+        level = level,
+        grid_space = 20,
+        mode = EditorMode.Place,
+        platform = nil,
+    }
+}
+
+editor_draw_grid :: proc(editor: ^Editor) {
+    // NOTE: I'm sleepy and IDK how I made this work. It may be
+    // simple math but I'm still not sure how I did it lol.
+    size: i32 = 1000
+    nlines := f32(size) / editor.grid_space
+    range := i32((nlines / 2) * editor.grid_space)
+    for line := -range; line <= range; line += i32(editor.grid_space) {
+        rl.DrawRectangle(line, -size/2, 1, size, rl.GRAY) // Vertical
+        rl.DrawRectangle(-size/2, line, size, 1, rl.GRAY) // Horizontal
+    }
+}
+
+// region === Platform ===
+platform_init :: proc(pos: rl.Vector2, editor: ^Editor) -> Platform {
+    return {
+        pos = pos,
+        width = editor.grid_space,
+        height = editor.grid_space,
+        color = rl.BLACK,
+    }
+}
+
 platform_collider :: proc(plat: Platform) -> rl.Rectangle {
     return {
         plat.pos.x, plat.pos.y, plat.width, plat.height,
     }
 }
 
+// region === Player ===
 player_init :: proc() -> Player {
     player := Player {
         size = {64, 64},
@@ -145,9 +217,25 @@ player_move :: proc(player: ^Player) {
 
 }
 
+player_draw :: proc(player: ^Player) {
+    source: rl.Rectangle
+    dest: rl.Rectangle
+    texture: rl.Texture2D
+
+    if player.is_moving {
+        texture, source, dest = get_animation(player^, &player.move_anim)
+    } else {
+        texture, source, dest = get_animation(player^, &player.idle_anim)
+    }
+
+    // Set the origin so what's actually drawn is above of the real position of the player
+    rl.DrawTexturePro(texture, source, dest, {dest.width / 2, dest.height}, 0, rl.WHITE)
+}
+
+// region === Camera ===
 camera_move :: proc(camera: ^rl.Camera2D) {
     ground: f32
-    steps :f32 = 3
+    steps: f32 = 7 / camera.zoom
 
     // Scroll
     if rl.IsKeyDown(.W) {
@@ -217,21 +305,6 @@ get_animation :: proc(player: Player, anim: ^Animation) -> (texture: rl.Texture2
     return
 }
 
-player_draw :: proc(player: ^Player) {
-    source: rl.Rectangle
-    dest: rl.Rectangle
-    texture: rl.Texture2D
-
-    if player.is_moving {
-        texture, source, dest = get_animation(player^, &player.move_anim)
-    } else {
-        texture, source, dest = get_animation(player^, &player.idle_anim)
-    }
-
-    // Set the origin so what's actually drawn is above of the real position of the player
-    rl.DrawTexturePro(texture, source, dest, {dest.width / 2, dest.height}, 0, rl.WHITE)
-}
-
 adjust_mspos :: proc(mspos: f32, grid_space: f32) -> f32 {
     pos: f32 = math.trunc(mspos / grid_space) * grid_space
 
@@ -272,27 +345,11 @@ main :: proc() {
     rl.SetWindowState({.WINDOW_RESIZABLE})
     rl.SetTargetFPS(150)
     
-    player := player_init()
-    level: Level
-    plat_texture := rl.LoadTexture("platform.png")
-
-    // Append a platform just in case something goes wrong while loading the level.
-    // Temporary tho, it should not allow load anything if no level can be loaded.
-    def_plat := Platform {
-        pos = rl.Vector2 {0, 20},
-        width = 20,
-        height = 20,
-        is_solid = true,
-        color = rl.BLACK,
-    }
-    if level_data, err := os.read_entire_file("level.json", context.temp_allocator); err == nil {
-        if json.unmarshal(level_data, &level) != nil {
-            append(&level.platforms, def_plat)
-        }
-    } else {
-        append(&level.platforms, def_plat)
-    }
-    free_all(context.temp_allocator)
+    player: Player = player_init()
+    level: Level = level_init()
+    editor: Editor = editor_init(&level)
+    mspos: rl.Vector2
+    //plat_texture := rl.LoadTexture("platform.png")
 
     for !rl.WindowShouldClose() {
 
@@ -303,13 +360,72 @@ main :: proc() {
             debug_mode = !debug_mode
         }
 
-        // Base drawing
-        rl.BeginDrawing()
-        rl.ClearBackground(rl.LIGHTGRAY)
 
         if editor_mode {
             camera_move(&camera)
 
+            pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
+            mspos = {
+                adjust_mspos(pos.x, editor.grid_space),
+                adjust_mspos(pos.y, editor.grid_space),
+            }
+
+            if rl.IsKeyDown(.LEFT_CONTROL) && rl.IsMouseButtonPressed(.LEFT) {
+                for plat, idx in level.platforms {
+                    if rl.CheckCollisionPointRec(mspos, platform_collider(plat)) {
+                        editor.platform = &level.platforms[idx]
+                        break
+                    }
+                }
+                fmt.println("Platform selected at ", editor.platform.pos)
+            }
+
+            // TODO: Add more functionality with the editor modes.
+            if editor.platform != nil {
+                // TODO: Try to edit platform, otherwise store index and access level platforms directly
+                editor.platform^.pos = mspos
+                fmt.printfln("editor.platform.pos = %p", editor.platform^)
+            }
+
+            // Place or remove platform
+            if rl.IsMouseButtonPressed(.LEFT) {
+                append(&level.platforms, platform_init(mspos, &editor))
+            }
+            if rl.IsMouseButtonPressed(.RIGHT) {
+                for plat, idx in level.platforms {
+                    if rl.CheckCollisionPointRec(mspos, platform_collider(plat)) {
+                        unordered_remove(&level.platforms, idx)
+                        break
+                    }
+                }
+            }
+
+            if rl.IsKeyPressed(.F5) {
+                if data, err := json.marshal(level, allocator = context.temp_allocator); err == nil {
+                    if ret := os.write_entire_file("level.json", data); err != nil {
+                        fmt.eprintln("Error writtin level to a file")
+                    } else {
+                        fmt.println("Level writen to a file successfuly")
+                    }
+                } else {
+                    fmt.println("Error marshaling level")
+                }
+                free_all(context.temp_allocator)
+            }
+            /*
+            if rl.IsKeyPressed(.P) {
+                editor.mode = EditorMode.Place
+            }
+            if rl.IsKeyPressed(.S) {
+                editor.mode = EditorMode.Size
+            }
+            if rl.IsKeyPressed(.C) {
+                editor.mode = EditorMode.Color
+            }
+            if rl.IsKeyPressed(.M) {
+                editor.mode = EditorMode.Move
+            }
+                */
         } else {
             // Update
             player_move(&player)
@@ -338,50 +454,21 @@ main :: proc() {
                 }
             }
         }
-        
+
         // Draw
+        rl.BeginDrawing()
+        rl.ClearBackground(rl.LIGHTGRAY)
         rl.BeginMode2D(camera)
+
         player_draw(&player)
-        for platform in level.platforms {
+        for plat in level.platforms {
             //rl.DrawTextureV(plat_texture, platform.pos, platform.color)
-            rl.DrawRectangle(i32(platform.pos.x), i32(platform.pos.y), i32(platform.width), i32(platform.height), platform.color)
+            rl.DrawRectangle(i32(plat.pos.x), i32(plat.pos.y), i32(plat.width), i32(plat.height), plat.color)
+            fmt.printfln("plat = %p", plat)
         }
 
         if editor_mode {
-            // Snap grid
-            // NOTE: I'm sleepy and IDK how I made this work. It may be
-            // simple math but I'm still not sure how I did it lol.
-            size :i32 = 1000
-            nlines := size / snap_grid
-            range := (nlines / 2) * snap_grid
-            for line :i32 = -range; line <= range; line += snap_grid {
-                rl.DrawRectangle(line, -size/2, 1, size, rl.GRAY) // Vertical
-                rl.DrawRectangle(-size/2, line, size, 1, rl.GRAY) // Horizontal
-            }
-
-            // Snap platform to the grid
-            mspos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
-            px := adjust_mspos(mspos.x, f32(snap_grid))
-            py := adjust_mspos(mspos.y, f32(snap_grid))
-            rl.DrawTextureV(plat_texture, {px, py}, rl.WHITE)
-
-            // Place or remove platform
-            vec: rl.Vector2 = {
-                px, py
-            }
-            /*
-            if rl.IsMouseButtonPressed(.LEFT) {
-                append(&level.platforms, vec)
-            }
-            if rl.IsMouseButtonPressed(.RIGHT) {
-                for plat, idx in level.platforms {
-                    if rl.CheckCollisionPointRec(vec, platform_collider(plat)) {
-                        unordered_remove(&level.platforms, idx)
-                        break
-                    }
-                }
-            }
-            */
+            editor_draw_grid(&editor)
 
             // Editor crosshair
             cx := i32(camera.target.x)
@@ -389,19 +476,6 @@ main :: proc() {
             rl.DrawRectangle(cx, cy - 5, 1, 10, rl.YELLOW) // Vertical
             rl.DrawRectangle(cx - 5, cy, 10, 1, rl.YELLOW) // Horizontal
 
-
-            if rl.IsKeyPressed(.F5) {
-                if data, err := json.marshal(level, allocator = context.temp_allocator); err == nil {
-                    if ret := os.write_entire_file("level.json", data); err != nil {
-                        fmt.eprintln("Error writtin level to a file")
-                    } else {
-                        fmt.println("Level writen to a file successfuly")
-                    }
-                } else {
-                    fmt.println("Error marshaling level")
-                }
-                free_all(context.temp_allocator)
-            }
         }
 
         if debug_mode {
@@ -427,6 +501,4 @@ main :: proc() {
     }
 
     rl.CloseWindow()
-
-
 }
