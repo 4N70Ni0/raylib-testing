@@ -31,7 +31,7 @@ Level :: struct {
     enemies: [dynamic] Enemy,
 }
 
-EditorMode :: enum {Place, Size, Color, Move}
+EditorMode :: enum {Place, Resize, Color, Move, Select}
 Editor :: struct {
     level: ^Level,
     mode:  EditorMode,
@@ -99,7 +99,7 @@ editor_init :: proc(level: ^Level) -> Editor {
     return {
         level = level,
         grid_space = 20,
-        mode = EditorMode.Place,
+        mode = EditorMode.Select,
         platform_idx = -1,
     }
 }
@@ -240,14 +240,16 @@ camera_move :: proc(camera: ^rl.Camera2D) {
     steps: f32 = 7 / camera.zoom
 
     // Scroll
-    if rl.IsKeyDown(.W) {
-        camera.target.y -= steps
-    } else if rl.IsKeyDown(.A) {
-        camera.target.x -= steps
-    } else if rl.IsKeyDown(.S) {
-        camera.target.y += steps
-    } else if rl.IsKeyDown(.D) {
-        camera.target.x += steps
+    if ! rl.IsKeyDown(.LEFT_CONTROL) {
+        if rl.IsKeyDown(.W) {
+            camera.target.y -= steps
+        } else if rl.IsKeyDown(.A) {
+            camera.target.x -= steps
+        } else if rl.IsKeyDown(.S) {
+            camera.target.y += steps
+        } else if rl.IsKeyDown(.D) {
+            camera.target.x += steps
+        }
     }
 
     // Zoom
@@ -373,7 +375,21 @@ main :: proc() {
                 adjust_mspos(pos.y, editor.grid_space),
             }
 
-            if rl.IsKeyDown(.LEFT_CONTROL) && rl.IsMouseButtonPressed(.LEFT) {
+            if rl.IsKeyDown(.LEFT_CONTROL) {
+                if rl.IsKeyPressed(.P) {
+                    editor.mode = EditorMode.Place
+                } else if rl.IsKeyPressed(.S) {
+                    editor.mode = EditorMode.Select
+                } else if rl.IsKeyPressed(.R) {
+                    editor.mode = EditorMode.Resize
+                } else if rl.IsKeyPressed(.C) {
+                    editor.mode = EditorMode.Color
+                } else if rl.IsKeyPressed(.M) {
+                    editor.mode = EditorMode.Move
+                }
+            }
+
+            if editor.mode == EditorMode.Select && rl.IsMouseButtonPressed(.LEFT) {
                 for plat, idx in level.platforms {
                     if idx == editor.platform_idx {
                         // Deselect
@@ -386,22 +402,7 @@ main :: proc() {
                     }
                 }
             }
-
-            if rl.IsKeyPressed(.P) {
-                editor.mode = EditorMode.Place
-                fmt.println("Place editor mode activated")
-            } else if rl.IsKeyPressed(.S) {
-                editor.mode = EditorMode.Size
-                fmt.println("Size editor mode activated")
-            } else if rl.IsKeyPressed(.C) {
-                editor.mode = EditorMode.Color
-                fmt.println("Color editor mode activated")
-            } else if rl.IsKeyPressed(.M) {
-                editor.mode = EditorMode.Move
-                fmt.println("Move editor mode activated")
-            }
-
-            if editor.mode == EditorMode.Place {
+            else if editor.mode == EditorMode.Place {
                 // Place or remove platform
                 if rl.IsMouseButtonPressed(.LEFT) {
                     append(&level.platforms, platform_init(mspos, &editor))
@@ -416,17 +417,31 @@ main :: proc() {
                 }
             } else if editor.platform_idx >= 0 {
                 // Sizing, coloring and moving depend on a selected platform.
-                if editor.mode == EditorMode.Size {
-                    if rl.IsKeyPressed(.UP) {
-                        level.platforms[editor.platform_idx].pos.y -= editor.grid_space
-                        level.platforms[editor.platform_idx].height += editor.grid_space
-                    } else if rl.IsKeyPressed(.LEFT) {
-                        level.platforms[editor.platform_idx].pos.x -= editor.grid_space
-                        level.platforms[editor.platform_idx].width += editor.grid_space
-                    } else if rl.IsKeyPressed(.DOWN) {
-                        level.platforms[editor.platform_idx].height += editor.grid_space
-                    } else if rl.IsKeyPressed(.RIGHT) {
-                        level.platforms[editor.platform_idx].width += editor.grid_space
+                if editor.mode == EditorMode.Resize {
+                    if rl.IsKeyDown(.LEFT_SHIFT) {
+                        if rl.IsKeyPressed(.UP) {
+                            level.platforms[editor.platform_idx].height -= editor.grid_space
+                        } else if rl.IsKeyPressed(.LEFT) {
+                            level.platforms[editor.platform_idx].width -= editor.grid_space
+                        } else if rl.IsKeyPressed(.DOWN) {
+                            level.platforms[editor.platform_idx].pos.y += editor.grid_space
+                            level.platforms[editor.platform_idx].height -= editor.grid_space
+                        } else if rl.IsKeyPressed(.RIGHT) {
+                            level.platforms[editor.platform_idx].pos.x += editor.grid_space
+                            level.platforms[editor.platform_idx].width -= editor.grid_space
+                        }
+                    } else {
+                        if rl.IsKeyPressed(.UP) {
+                            level.platforms[editor.platform_idx].pos.y -= editor.grid_space
+                            level.platforms[editor.platform_idx].height += editor.grid_space
+                        } else if rl.IsKeyPressed(.LEFT) {
+                            level.platforms[editor.platform_idx].pos.x -= editor.grid_space
+                            level.platforms[editor.platform_idx].width += editor.grid_space
+                        } else if rl.IsKeyPressed(.DOWN) {
+                            level.platforms[editor.platform_idx].height += editor.grid_space
+                        } else if rl.IsKeyPressed(.RIGHT) {
+                            level.platforms[editor.platform_idx].width += editor.grid_space
+                        }
                     }
                 } else if editor.mode == EditorMode.Color {
                     idx := level.platforms[editor.platform_idx].color_idx
@@ -446,6 +461,10 @@ main :: proc() {
                     level.platforms[editor.platform_idx].color = Colors[idx]
                 } else if editor.mode == EditorMode.Move {
                     level.platforms[editor.platform_idx].pos = mspos
+
+                    if rl.IsMouseButtonDown(.LEFT) && editor.platform_idx >= 0 {
+                        editor.platform_idx = -1
+                    }
                 }
             }
 
@@ -509,7 +528,14 @@ main :: proc() {
             cy := i32(camera.target.y)
             rl.DrawRectangle(cx, cy - 5, 1, 10, rl.YELLOW) // Vertical
             rl.DrawRectangle(cx - 5, cy, 10, 1, rl.YELLOW) // Horizontal
+            
+            msg := fmt.ctprintf("[%v]", editor.mode)
+            rl.DrawText(msg, cx - 155, cy + (PixelWindowHeight / 3), 1, rl.YELLOW)
 
+            if editor.platform_idx >= 0 {
+                plat := level.platforms[editor.platform_idx]
+                rl.DrawRectangleLines(i32(plat.pos.x+1), i32(plat.pos.y+1), i32(plat.width-1), i32(plat.height-1), rl.YELLOW)
+            }
         }
 
         if debug_mode {
