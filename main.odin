@@ -444,7 +444,7 @@ main :: proc() {
 
                     level.platforms[editor.platform_idx].color_idx = idx
                     level.platforms[editor.platform_idx].color = Colors[idx]
-                } else if editor.mode == Editor.Move {
+                } else if editor.mode == EditorMode.Move {
                     level.platforms[editor.platform_idx].pos = mspos
                 }
             }
