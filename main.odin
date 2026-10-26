@@ -307,7 +307,7 @@ main :: proc() {
     camera: rl.Camera2D
     
     debug_mode := false
-    editor_mode := false
+    is_editor_mode := false
     snap_grid: i32 = 20
     Colors := [25]rl.Color {rl.BLACK, rl.LIGHTGRAY, rl.GRAY, rl.DARKGRAY, rl.YELLOW, rl.GOLD, rl.ORANGE, rl.PINK, rl.RED, rl.MAROON, rl.GREEN, rl.LIME, rl.DARKGREEN, rl.SKYBLUE, rl.BLUE, rl.DARKBLUE, rl.PURPLE, rl.VIOLET, rl.DARKPURPLE, rl.BEIGE, rl.BROWN, rl.DARKBROWN, rl.WHITE, rl.BLANK, rl.MAGENTA}
 
@@ -318,13 +318,15 @@ main :: proc() {
     player: Player = player_init()
     level: Level = level_init()
     editor: Editor = editor_init(&level)
+    editor_mode: i32 = -1
+    is_dropdown: bool = false
     mspos: rl.Vector2
     //plat_texture := rl.LoadTexture("platform.png")
 
     for !rl.WindowShouldClose() {
 
         if rl.IsKeyPressed(.F2) {
-            editor_mode = !editor_mode
+            is_editor_mode = !is_editor_mode
         }
         if rl.IsKeyPressed(.F3) {
             debug_mode = !debug_mode
@@ -333,7 +335,7 @@ main :: proc() {
 
         // TODO: Add copy/cut/paste functionality. On the Place mode, the next platform
         // should have the same properties of the last platform edited.
-        if editor_mode {
+        if is_editor_mode {
 
             pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
             mspos = {
@@ -509,7 +511,7 @@ main :: proc() {
             rl.DrawRectangle(i32(plat.pos.x), i32(plat.pos.y), i32(plat.width), i32(plat.height), plat.color)
         }
 
-        if editor_mode {
+        if is_editor_mode {
             editor_draw_grid(&editor)
 
             // Editor crosshair
@@ -524,6 +526,16 @@ main :: proc() {
             if editor.platform_idx >= 0 {
                 plat := level.platforms[editor.platform_idx]
                 rl.DrawRectangleLines(i32(plat.pos.x+1), i32(plat.pos.y+1), i32(plat.width-1), i32(plat.height-1), rl.YELLOW)
+            }
+        
+            // TODO: Add menu to avoid using keyboard shortcuts
+            //rl.GuiLock()
+            //rl.GuiUnlock()
+            is_dropdown = true
+            rec := rl.Rectangle {f32(cx - 155), f32(cy), 100.0, 20.0}
+            msg = "SELECT;PLACE;MOVE;RESIZE;COLOR"
+            if rl.GuiDropdownBox(rec, msg, &editor_mode, is_dropdown) {
+                is_dropdown = !is_dropdown
             }
         }
 
