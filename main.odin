@@ -234,41 +234,6 @@ player_draw :: proc(player: ^Player) {
     rl.DrawTexturePro(texture, source, dest, {dest.width / 2, dest.height}, 0, rl.WHITE)
 }
 
-// region === Camera ===
-camera_move :: proc(camera: ^rl.Camera2D) {
-    ground: f32
-    steps: f32 = 7 / camera.zoom
-
-    // Scroll
-    if ! rl.IsKeyDown(.LEFT_CONTROL) {
-        if rl.IsKeyDown(.W) {
-            camera.target.y -= steps
-        } else if rl.IsKeyDown(.A) {
-            camera.target.x -= steps
-        } else if rl.IsKeyDown(.S) {
-            camera.target.y += steps
-        } else if rl.IsKeyDown(.D) {
-            camera.target.x += steps
-        }
-    }
-
-    // Zoom
-    if rl.IsKeyDown(.LEFT_CONTROL) {
-        if rl.IsKeyPressed(.MINUS) {
-            camera.zoom -= 0.5
-            if camera.zoom <= 1 {
-                camera.zoom = 1
-            }
-        }
-        if rl.IsKeyPressed(.EQUAL) {
-            camera.zoom += 0.5
-            if camera.zoom >= 10 {
-                camera.zoom = 10
-            }
-        }
-    }
-}
-
 get_animation :: proc(player: Player, anim: ^Animation) -> (texture: rl.Texture2D, source: rl.Rectangle, dest: rl.Rectangle) {
     run_width := f32(anim.texture.width)
     run_height := f32(anim.texture.height)
@@ -366,8 +331,9 @@ main :: proc() {
         }
 
 
+        // TODO: Add copy/cut/paste functionality. On the Place mode, the next platform
+        // should have the same properties of the last platform edited.
         if editor_mode {
-            camera_move(&camera)
 
             pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
             mspos = {
@@ -376,7 +342,18 @@ main :: proc() {
             }
 
             if rl.IsKeyDown(.LEFT_CONTROL) {
-                if rl.IsKeyPressed(.P) {
+
+                if rl.IsKeyPressed(.MINUS) { // Zoom
+                    camera.zoom -= 0.5
+                    if camera.zoom <= 1 {
+                        camera.zoom = 1
+                    }
+                } else if rl.IsKeyPressed(.EQUAL) {
+                    camera.zoom += 0.5
+                    if camera.zoom >= 10 {
+                        camera.zoom = 10
+                    }
+                } else if rl.IsKeyPressed(.P) { // Editor modes
                     editor.mode = EditorMode.Place
                 } else if rl.IsKeyPressed(.S) {
                     editor.mode = EditorMode.Select
@@ -386,6 +363,18 @@ main :: proc() {
                     editor.mode = EditorMode.Color
                 } else if rl.IsKeyPressed(.M) {
                     editor.mode = EditorMode.Move
+                }
+            } else {
+                // Camera movement
+                steps: f32 = 7 / camera.zoom
+                if rl.IsKeyDown(.W) {
+                    camera.target.y -= steps
+                } else if rl.IsKeyDown(.A) {
+                    camera.target.x -= steps
+                } else if rl.IsKeyDown(.S) {
+                    camera.target.y += steps
+                } else if rl.IsKeyDown(.D) {
+                    camera.target.x += steps
                 }
             }
 
