@@ -318,7 +318,7 @@ main :: proc() {
     player: Player = player_init()
     level: Level = level_init()
     editor: Editor = editor_init(&level)
-    editor_mode: i32 = -1
+    editor_mode: i32 = 0
     is_dropdown: bool = false
     mspos: rl.Vector2
     //plat_texture := rl.LoadTexture("platform.png")
@@ -355,20 +355,11 @@ main :: proc() {
                     if camera.zoom >= 10 {
                         camera.zoom = 10
                     }
-                } else if rl.IsKeyPressed(.P) { // Editor modes
-                    editor.mode = EditorMode.Place
-                } else if rl.IsKeyPressed(.S) {
-                    editor.mode = EditorMode.Select
-                } else if rl.IsKeyPressed(.R) {
-                    editor.mode = EditorMode.Resize
-                } else if rl.IsKeyPressed(.C) {
-                    editor.mode = EditorMode.Color
-                } else if rl.IsKeyPressed(.M) {
-                    editor.mode = EditorMode.Move
-                }
+                }  editor.mode = EditorMode.Move
             } else {
                 // Camera movement
                 steps: f32 = 7 / camera.zoom
+
                 if rl.IsKeyDown(.W) {
                     camera.target.y -= steps
                 } else if rl.IsKeyDown(.A) {
@@ -379,6 +370,8 @@ main :: proc() {
                     camera.target.x += steps
                 }
             }
+
+            // TODO: Change editor mode using the dropdown selector.
 
             if editor.mode == EditorMode.Select && rl.IsMouseButtonPressed(.LEFT) {
                 for plat, idx in level.platforms {
@@ -513,37 +506,42 @@ main :: proc() {
 
         if is_editor_mode {
             editor_draw_grid(&editor)
-
-            // Editor crosshair
             cx := i32(camera.target.x)
             cy := i32(camera.target.y)
+
+            // Editor crosshair
+            /*
             rl.DrawRectangle(cx, cy - 5, 1, 10, rl.YELLOW) // Vertical
             rl.DrawRectangle(cx - 5, cy, 10, 1, rl.YELLOW) // Horizontal
+j            */
             
-            msg := fmt.ctprintf("[%v]", editor.mode)
-            rl.DrawText(msg, cx - 155, cy + (PixelWindowHeight / 3), 1, rl.YELLOW)
-
             if editor.platform_idx >= 0 {
                 plat := level.platforms[editor.platform_idx]
                 rl.DrawRectangleLines(i32(plat.pos.x+1), i32(plat.pos.y+1), i32(plat.width-1), i32(plat.height-1), rl.YELLOW)
             }
         
-            // TODO: Add menu to avoid using keyboard shortcuts
-            //rl.GuiLock()
-            //rl.GuiUnlock()
-            is_dropdown = true
-            rec := rl.Rectangle {f32(cx - 155), f32(cy), 100.0, 20.0}
-            msg = "SELECT;PLACE;MOVE;RESIZE;COLOR"
-            if rl.GuiDropdownBox(rec, msg, &editor_mode, is_dropdown) {
-                is_dropdown = !is_dropdown
-            }
         }
 
         if debug_mode {
             rl.DrawRectangleRec(player.feet_colider, rl.ORANGE)
+        }
 
-            base_x := i32(camera.target.x - 155)
-            base_y := i32(camera.target.y - 80)
+
+        rl.EndMode2D()
+
+        if debug_mode {
+            cur_size: i32
+            size: i32 = 40
+
+            cur_size = rl.GuiGetStyle(rl.GuiControl.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE))
+            rl.GuiSetStyle(rl.GuiControl.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), size)
+
+            rec: rl.Rectangle = {
+                x = 20,
+                y = PixelWindowHeight * 3, 
+                width = 300,
+                height = f32(size),
+            }
             lines := []cstring {
                 fmt.ctprintf("x: %2.f, y: %2.f", player.pos.x, player.pos.y),
                 fmt.ctprintf("xvel: %2.f, yvel: %2.f", player.vel.x, player.vel.y),
@@ -551,13 +549,21 @@ main :: proc() {
             }
 
             for msg in lines {
-                // FIX: This is a massive memory leak
-                rl.DrawText(msg, base_x, base_y, 1, rl.BLACK)
-                base_y += 10
+                //rl.DrawText(msg, base_x, base_y, 1, rl.BLACK)
+                rl.GuiLabel(rec, msg)
+                rec.y += f32(size)
+            }
+            rl.GuiSetStyle(rl.GuiControl.DEFAULT, i32(rl.GuiDefaultProperty.TEXT_SIZE), cur_size)
+        }
+
+        if is_editor_mode {
+            rec := rl.Rectangle {20., 20., 100.0, 30.0}
+            msg: cstring = "SELECT;PLACE;MOVE;RESIZE;COLOR"
+            if rl.GuiDropdownBox(rec, msg, &editor_mode, is_dropdown) {
+                is_dropdown = !is_dropdown
             }
         }
 
-        rl.EndMode2D()
         rl.EndDrawing()
     }
 
